@@ -1,0 +1,166 @@
+# Importing libraries
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+from sklearn.utils import resample
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import mean_squared_error, r2_score, classification_report, confusion_matrix, accuracy_score, roc_auc_score
+import joblib
+
+# Load dataset
+df = pd.read_csv('creditcard.csv')
+print(df)
+
+# Inspect the first few rows
+print(df.head())
+
+## Exploratory Data Analysis
+
+# Check the shape of the dataset
+print(df.shape)
+
+# Check the data types of each column
+print(df.dtypes)
+
+# Get an overview of the dataset
+print(df.info())
+print(df.describe())
+
+## Class Distribution (Fraud vs Non-Fraud)
+
+# Visualize class distribution
+sns.countplot(x='Class', data=df)
+plt.title("Class Distribution")
+plt.xlabel("Class (0: Non-Fraud, 1: Fraud)")
+plt.ylabel("Count")
+plt.show()
+
+## Distribution of Transaction Amounts
+
+# Plot the distribution of transaction amounts
+plt.figure(figsize=(6, 4))
+sns.histplot(df['Amount'], bins=20, kde=True)
+plt.title('Distribution of Transaction Amounts')
+plt.xlabel('Transaction Amount')
+plt.ylabel('Frequency')
+plt.show()
+
+## Time vs Amount for Fraud and Non-Fraud Transactions
+
+# Time vs Amount for Fraud and Non-Fraud transactions
+plt.figure(figsize=(10, 5))
+sns.scatterplot(x='Time', y='Amount', hue='Class', data=df, alpha=0.5, palette={0: "blue", 1: "red"})
+plt.title('Time vs Amount for Fraud and Non-Fraud Transactions')
+plt.xlabel('Time')
+plt.ylabel('Amount')
+plt.show()
+
+## Correlation Heatmap
+
+# Correlation heatmap
+plt.figure(figsize=(15, 10))
+corr_matrix = df.corr()
+sns.heatmap(corr_matrix, annot=False, cmap='coolwarm', linewidths=0.5)
+plt.title('Correlation Heatmap')
+plt.show()
+
+## Boxplot of Amount vs Class
+
+# Boxplot of Amount vs Class
+plt.figure(figsize=(10, 5))
+sns.boxplot(x='Class', y='Amount', data=df)
+plt.title('Boxplot of Amount vs Class')
+plt.xlabel('Class (0: Non-Fraud, 1: Fraud)')
+plt.ylabel('Transaction Amount')
+plt.show()
+
+## Data Cleaning
+
+# Check for missing values percentage
+print(df.isnull().sum() / len(df) * 100)
+
+## Identifying and Handling Outliers using Z-Score for Outlier Detection
+
+# Standardization
+scaler = StandardScaler()
+numerical_features = df.drop(columns=['Class'])
+df[numerical_features.columns] = scaler.fit_transform(numerical_features)
+
+# Identifying and Handling Outliers
+z_scores = np.abs((df[numerical_features.columns] - df[numerical_features.columns].mean()) / df[numerical_features.columns].std())
+threshold = 3
+outliers = (z_scores > threshold).any(axis=1)
+
+# Print number of outliers
+print(f'Number of outliers: {outliers.sum()}')
+
+# Optionally remove outliers
+df = df[~outliers]
+
+# Check the shape after removing outliers
+print(f"Dataset shape after removing outliers: {df.shape}")
+
+## Dealing with Imbalanced data
+
+# Check the class distribution
+print(df['Class'].value_counts())
+
+# Separate Majority and Minority Classes
+majority_class = df[df['Class'] == 0]  # Non-fraudulent transactions
+minority_class = df[df['Class'] == 1]  # Fraudulent transactions
+
+# Over-sample the minority class
+minority_upsampled = resample(minority_class, 
+                              replace=True,     # Sample with replacement
+                              n_samples=len(majority_class),  # Match the majority class size
+                              random_state=42)  # Set a seed for reproducibility
+
+# Combine the upsampled minority class with the original majority class
+df_upsampled = pd.concat([majority_class, minority_upsampled])
+
+# Check class distribution after over-sampling
+print(df_upsampled['Class'].value_counts())
+
+# Creating New Features
+df_upsampled['Hour'] = (df_upsampled['Time'] / 3600).astype(int) % 24  # Converts Time to hours
+df_upsampled['Is_Weekend'] = ((df_upsampled['Hour'] >= 0) & (df_upsampled['Hour'] < 6)).astype(int)  # Transactions between 12 AM and 6 AM as potentially risky
+df_upsampled['Log_Amount'] = np.log1p(df_upsampled['Amount'])  # log1p is used to avoid log(0)
+df_upsampled = df_upsampled.drop(columns=['Amount'])
+
+# Removing Irrelevant Features
+correlation_matrix = df_upsampled.corr()
+high_corr = correlation_matrix[abs(correlation_matrix) > 0.8]
+features_to_drop = high_corr.columns[high_corr.nunique() > 1].tolist()
+df_upsampled.drop(columns=features_to_drop, inplace=True)
+
+## Split Features and Labels
+X = df_upsampled.drop(columns=['Class'])
+y = df_upsampled['Class']
+
+## Split Data into Training and Test Sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+
+## Model Selection
+rf = RandomForestClassifier(random_state=42)
+rf.fit(X_train, y_train)
+
+# Model Validation
+y_pred = rf.predict(X_test)
+
+# Confusion Matrix
+print(confusion_matrix(y_test, y_pred))  
+
+# Classification Report
+print(classification_report(y_test, y_pred))
+
+# Accuracy Metrics
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print("Precision:", metrics.precision_score(y_test, y_pred, pos_label=1))
+print("Recall:", metrics.recall_score(y_test, y_pred, pos_label=1))
+print("AUC-ROC Score:", roc_auc_score(y_test, y_pred))
+
+# Save Model
+joblib.dump(rf, 'model.pkl')
